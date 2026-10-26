@@ -254,6 +254,9 @@ struct UpcRhoAnalysis {
   HistogramRegistry rMC{"rMC", {}, OutputObjHandlingPolicy::AnalysisObject};
   HistogramRegistry rResolution{"rResolution", {}, OutputObjHandlingPolicy::AnalysisObject};
 
+  // UDMcParticles produced by the UD MC producers are not guaranteed to be sorted by McCollision
+  PresliceUnsorted<aod::UDMcParticles> partPerMcCollision = aod::udmcparticle::udMcCollisionId;
+
   void init(o2::framework::InitContext& context)
   {
     if (context.mOptions.get<bool>("processSGdata") || context.mOptions.get<bool>("processDGdata")) {
@@ -1024,7 +1027,7 @@ struct UpcRhoAnalysis {
     rMC.fill(HIST("MC/collisions/hPosXY"), mcCollision.posX(), mcCollision.posY());
     rMC.fill(HIST("MC/collisions/hPosZ"), mcCollision.posZ());
 
-    std::vector<decltype(mcParticles.begin())> cutMcParticles;
+    std::vector<aod::UDMcParticles::iterator> cutMcParticles;
     std::vector<ROOT::Math::PxPyPzMVector> mcParticlesLVs;
 
     for (auto const& mcParticle : mcParticles) {
@@ -1054,7 +1057,7 @@ struct UpcRhoAnalysis {
         rMC.fill(HIST("MC/tracks/all/hMotherPdgCode"), mcParticle.pdgCode());
         if (mcParticle.pdgCode() != kRho770_0)
           continue; // consider only rho0s
-        for (const auto& daughter : mcParticle.template daughters_as<T>()) {
+        for (const auto& daughter : mcParticle.template daughters_as<aod::UDMcParticles>()) {
           if (!daughter.isPhysicalPrimary() || std::abs(daughter.pdgCode()) != kPiPlus)
             continue;
           cutMcParticles.push_back(daughter);
@@ -1153,20 +1156,24 @@ struct UpcRhoAnalysis {
   }
   PROCESS_SWITCH(UpcRhoAnalysis, processDGdata, "analyse DG data", false);
 
-  void processMCdata(aod::UDMcCollision const& mcCollision, aod::UDMcParticles const& mcParticles)
+  void processMCdata(aod::UDMcCollisions const& mcCollisions, aod::UDMcParticles const& mcParticles)
   {
-    processMC(mcCollision, mcParticles, -1);
+    for (const auto& mcCollision : mcCollisions) {
+      processMC(mcCollision, mcParticles.sliceBy(partPerMcCollision, mcCollision.globalIndex()), -1);
+    }
   }
   PROCESS_SWITCH(UpcRhoAnalysis, processMCdata, "analyse MC data", false);
 
-  void processMCdataWithBCs(aod::UDMcCollision const& mcCollision, aod::UDMcParticles const& mcParticles, aod::BCs const& bcs)
+  void processMCdataWithBCs(aod::UDMcCollisions const& mcCollisions, aod::UDMcParticles const& mcParticles, aod::BCs const& bcs)
   {
     int runNumber = -1;
     if (bcs.size() != 0) {
       auto bc = bcs.begin();
       runNumber = bc.runNumber();
     }
-    processMC(mcCollision, mcParticles, runNumber);
+    for (const auto& mcCollision : mcCollisions) {
+      processMC(mcCollision, mcParticles.sliceBy(partPerMcCollision, mcCollision.globalIndex()), runNumber);
+    }
   }
   PROCESS_SWITCH(UpcRhoAnalysis, processMCdataWithBCs, "analyse MC data with BCs (only with on-the-fly skimming)", false);
 
